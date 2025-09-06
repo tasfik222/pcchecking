@@ -1,0 +1,1 @@
+ Extract file paths using regex ^([a-zA-Z]:\\.+)\\?$ in System Informer (use services like Explorer, SearchIndexer, Csrss high or low bytes)
