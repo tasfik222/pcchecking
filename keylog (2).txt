@@ -1,0 +1,53 @@
+# ==============================
+# Full Global Key Detector (PowerShell 7+)
+# Detects ALL keys (0-255), duplicate-free, optional file log
+# ==============================
+
+# Path to log file (optional)
+$logFile = "$env:USERPROFILE\Desktop\KeyLog.txt"
+if (-not (Test-Path $logFile)) { New-Item -Path $logFile -ItemType File | Out-Null }
+
+# Import GetAsyncKeyState from user32.dll
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public class KeyState {
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int vKey);
+}
+"@
+
+# Hashtable to track pressed state
+$pressed = @{}
+0..255 | ForEach-Object { $pressed[$_] = $false }
+
+Write-Host "Global Key Detector started. Press Ctrl+C to exit.`n"
+Write-Host "Logging to: $logFile`n"
+
+while ($true) {
+    0..255 | ForEach-Object {
+        $k = $_
+        $state = [KeyState]::GetAsyncKeyState($k)
+        if (($state -band 0x8000) -and (-not $pressed[$k])) {
+            # Get key name if possible
+            try {
+                $keyName = [Enum]::GetName([System.Windows.Forms.Keys], $k)
+                if (-not $keyName) { $keyName = "VK_$k" }
+            } catch { $keyName = "VK_$k" }
+
+            # Print to console
+            Write-Host ("Key Pressed: $keyName")
+
+            # Append to log file
+            "$((Get-Date -Format 'yyyy-MM-dd HH:mm:ss')) - $keyName" | Out-File -FilePath $logFile -Append
+
+            # Mark as pressed
+            $pressed[$k] = $true
+        }
+        elseif (($state -band 0x8000) -eq 0) {
+            $pressed[$k] = $false
+        }
+    }
+    Start-Sleep -Milliseconds 50
+}
