@@ -1,0 +1,25 @@
+# Timestamp তৈরি
+$timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$inventoryFolder = "C:\full_system_inventory\$timestamp"
+
+# ফোল্ডার তৈরি
+if (!(Test-Path -Path $inventoryFolder)) {
+    New-Item -ItemType Directory -Path $inventoryFolder -Force
+}
+
+# ইনস্টল করা সফটওয়্যার লিস্ট করা
+Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\, HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\ | 
+Where-Object { $_.DisplayName -ne $null } |
+Select-Object DisplayName, InstallDate |
+Sort-Object DisplayName |
+Out-File "$inventoryFolder\installed_programs_list.txt"
+
+# সমস্ত exe ও dll ফাইলের লিস্ট
+Get-ChildItem -Path C:\ -Include *.exe, *.dll -Recurse -ErrorAction SilentlyContinue |
+Where-Object { -not $_.PSIsContainer } |
+Select-Object FullName, Length, LastWriteTime |
+Out-File "$inventoryFolder\executables_and_dlls_list.txt"
+
+# শেষ মেসেজ
+Write-Output "System inventory complete!"
+Write-Output "Files saved at: $inventoryFolder"

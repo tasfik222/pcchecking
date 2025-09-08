@@ -1,0 +1,10 @@
+
+$path = "C:\Windows\System32"  # Change this to scan a different folder
+
+Get-ChildItem -Path $path -Filter *.dll -Recurse -ErrorAction SilentlyContinue | 
+ForEach-Object {
+    $sig = Get-AuthenticodeSignature -FilePath $_.FullName
+    if ($sig.Status -ne 'Valid') {
+        Write-Output "$($_.FullName) - UNSIGNED"
+    }
+}

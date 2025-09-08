@@ -1,0 +1,39 @@
+# Function to check the signature of a DLL
+function Get-SignatureStatus {
+    param (
+        [string]$DllPath
+    )
+    try {
+        $signature = Get-AuthenticodeSignature -FilePath $DllPath
+        return $signature.Status
+    }
+    catch {
+        Write-Host "Error checking signature for $DllPath"
+        return "Error"
+    }
+}
+
+# Get all processes running on the machine
+$allProcesses = Get-Process
+
+# Iterate through each process
+foreach ($process in $allProcesses) {
+    try {
+        Write-Host "Checking process: $($process.Name) (PID: $($process.Id))"
+
+        # Get modules (DLLs) loaded by the process
+        $modules = $process.Modules
+        foreach ($module in $modules) {
+            $modulePath = $module.FileName
+            $signatureStatus = Get-SignatureStatus -DllPath $modulePath
+
+            # If DLL is unsigned or cannot verify signature, print it
+            if ($signatureStatus -ne "Valid") {
+                Write-Host "Unsigned DLL Found: $($module.ModuleName) (Path: $modulePath)"
+            }
+        }
+    }
+    catch {
+        Write-Host "Could not access modules for process: $($process.Name) (PID: $($process.Id))"
+    }
+}
