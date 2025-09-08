@@ -1,0 +1,143 @@
+# Requires VirusTotal API v3
+
+# Configuration
+$VirusTotalApiKey = "fbea53db4a635688bccdc8b4241858cc5bb3ea55f6d2b91254b1c98f2d302191" # Replace with your actual API key
+$OutputFile = "SuspiciousDLLs_Report.txt"
+$ScanDelay = 15 # Delay in seconds between API requests to respect rate limits
+
+# Function to get SHA256 hash of a file
+function Get-FileHash256 {
+    param([string]$FilePath)
+    try {
+        $hash = Get-FileHash -Path $FilePath -Algorithm SHA256 -ErrorAction Stop
+        return $hash.Hash
+    }
+    catch {
+        Write-Warning "Cannot hash file: $FilePath - $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Function to check file with VirusTotal
+function Test-VirusTotal {
+    param([string]$FileHash)
+    
+    if (-not $FileHash) { return $null }
+
+    $headers = @{
+        "x-apikey" = $VirusTotalApiKey
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/$FileHash" -Method Get -Headers $headers -ErrorAction Stop
+        return $response
+    }
+    catch {
+        # Handle 404 (file not found in VT database)
+        if ($_.Exception.Response.StatusCode -eq 404) {
+            Write-Host "File not found in VirusTotal database: $FileHash" -ForegroundColor Yellow
+            return "Not Found"
+        }
+        Write-Warning "API Error: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Main script
+Write-Host "Scanning running processes for loaded DLLs..." -ForegroundColor Green
+
+# Get all unique loaded DLLs from running processes
+$loadedDLLs = Get-Process | ForEach-Object {
+    $_.Modules | Where-Object { $_.FileName -like "*.dll" } | Select-Object FileName
+} | Sort-Object FileName -Unique
+
+Write-Host "Found $($loadedDLLs.Count) unique DLLs loaded in memory" -ForegroundColor Green
+
+$suspiciousResults = @()
+
+# Process each DLL
+for ($i = 0; $i -lt $loadedDLLs.Count; $i++) {
+    $dllPath = $loadedDLLs[$i].FileName
+    
+    Write-Progress -Activity "Scanning DLLs" -Status "Processing: $(Split-Path $dllPath -Leaf)" -PercentComplete (($i / $loadedDLLs.Count) * 100)
+    
+    Write-Host "Checking: $($dllPath)" -ForegroundColor Cyan
+    
+    # Get file hash
+    $fileHash = Get-FileHash256 -FilePath $dllPath
+    if (-not $fileHash) { continue }
+
+    # Check with VirusTotal
+    $vtResult = Test-VirusTotal -FileHash $fileHash
+    
+    # Handle API rate limiting
+    Start-Sleep -Milliseconds 200
+    
+    if ($vtResult -eq "Not Found") {
+        # Skip files not in VT database
+        continue
+    }
+    elseif ($vtResult) {
+        # Analyze results
+        $maliciousCount = $vtResult.data.attributes.last_analysis_stats.malicious
+        $suspiciousCount = $vtResult.data.attributes.last_analysis_stats.suspicious
+        
+        if ($maliciousCount -gt 0 -or $suspiciousCount -gt 0) {
+            $result = [PSCustomObject]@{
+                DLLPath = $dllPath
+                SHA256 = $fileHash
+                MaliciousDetections = $maliciousCount
+                SuspiciousDetections = $suspiciousCount
+                TotalEngines = $maliciousCount + $suspiciousCount + $vtResult.data.attributes.last_analysis_stats.undetected + $vtResult.data.attributes.last_analysis_stats.harmless
+                VTLink = "https://www.virustotal.com/gui/file/$fileHash"
+            }
+            
+            $suspiciousResults += $result
+            
+            Write-Host "⚠️  SUSPICIOUS: $dllPath" -ForegroundColor Red
+            Write-Host "   Malicious: $maliciousCount, Suspicious: $suspiciousCount" -ForegroundColor Red
+        }
+        else {
+            Write-Host "✅ Clean: $dllPath" -ForegroundColor Green
+        }
+    }
+    
+    # Respect VT API rate limits (4 requests per minute for free tier)
+    if (($i + 1) % 4 -eq 0) {
+        Write-Host "Waiting $ScanDelay seconds to respect rate limits..." -ForegroundColor Yellow
+        Start-Sleep -Seconds $ScanDelay
+    }
+}
+
+Write-Progress -Activity "Scanning DLLs" -Completed
+
+# Generate report
+if ($suspiciousResults.Count -gt 0) {
+    $report = @()
+    $report += "SUSPICIOUS DLLS FOUND - $(Get-Date)"
+    $report += "=" * 50
+    $report += ""
+    
+    foreach ($result in $suspiciousResults) {
+        $report += "DLL Path: $($result.DLLPath)"
+        $report += "SHA256: $($result.SHA256)"
+        $report += "Malicious Detections: $($result.MaliciousDetections)"
+        $report += "Suspicious Detections: $($result.SuspiciousDetections)"
+        $report += "VT Link: $($result.VTLink)"
+        $report += "-" * 40
+        $report += ""
+    }
+    
+    # Save to file
+    $report | Out-File -FilePath $OutputFile -Encoding UTF8
+    
+    Write-Host "`n$($suspiciousResults.Count) suspicious DLLs found!" -ForegroundColor Red
+    Write-Host "Report saved to: $OutputFile" -ForegroundColor Green
+    
+    # Show summary
+    $suspiciousResults | Format-Table DLLPath, MaliciousDetections, SuspiciousDetections -AutoSize
+}
+else {
+    Write-Host "`nNo suspicious DLLs found! ✅" -ForegroundColor Green
+    "No suspicious DLLs found - $(Get-Date)" | Out-File -FilePath $OutputFile -Encoding UTF8
+}
