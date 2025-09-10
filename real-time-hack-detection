@@ -1,0 +1,112 @@
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# ===========================
+# Real-Time Cheat / Hack Monitor GUI with Logging
+# ===========================
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Real-Time Hack / Cheat Monitor (Auto-Logging)"
+$form.Size = New-Object System.Drawing.Size(1000,650)
+$form.StartPosition = "CenterScreen"
+
+# RichTextBox for live output
+$rtb = New-Object System.Windows.Forms.RichTextBox
+$rtb.Dock = "Fill"
+$rtb.ReadOnly = $true
+$rtb.Font = 'Consolas,10'
+$rtb.BackColor = 'Black'
+$rtb.ForeColor = 'White'
+$form.Controls.Add($rtb)
+
+# Start Button
+$btnStart = New-Object System.Windows.Forms.Button
+$btnStart.Text = "Start Real-Time Monitor"
+$btnStart.Dock = "Top"
+$btnStart.Height = 40
+$form.Controls.Add($btnStart)
+
+# ===========================
+# Log File Setup
+$logFile = "$env:USERPROFILE\Desktop\HackMonitor_Log.txt"
+if (-not (Test-Path $logFile)) { New-Item -Path $logFile -ItemType File -Force }
+
+Function Write-Log([string]$msg,[string]$color="White"){
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $fullMsg = "[$timestamp] $msg"
+    # Write to RichTextBox
+    $rtb.SelectionStart = $rtb.TextLength
+    $rtb.SelectionLength = 0
+    $rtb.SelectionColor = $color
+    $rtb.AppendText($fullMsg + "`r`n")
+    $rtb.SelectionColor = $rtb.ForeColor
+    # Write to Log file
+    Add-Content -Path $logFile -Value $fullMsg
+}
+
+# ===========================
+# Monitoring Functions
+
+Function Monitor-Processes {
+    Get-Process | ForEach-Object {
+        $proc = $_
+        try {
+            $path = $proc.Path
+            $sig = if ($path) { (Get-AuthenticodeSignature $path).Status } else { "No Path" }
+            if (-not $path -or $sig -ne "Valid") {
+                Write-Log "❌ Suspicious Process: $($proc.ProcessName) | PID: $($proc.Id) | Path: $($path -replace '`n','') | Signature: $sig" "Red"
+            } else {
+                Write-Log "✔ Process: $($proc.ProcessName) | PID: $($proc.Id) | Path: $path | Signature: $sig" "Green"
+            }
+        } catch {}
+    }
+}
+
+Function Monitor-Network {
+    netstat -ano | Select-String "ESTABLISHED" | ForEach-Object {
+        $line = $_.ToString()
+        if ($line -match "(3389|5938|7070)") {
+            Write-Log "❌ Suspicious Connection: $line" "Red"
+        } else {
+            Write-Log "$line" "Green"
+        }
+    }
+}
+
+Function Monitor-Files {
+    $paths = @("$env:TEMP", "$env:APPDATA", "$env:LOCALAPPDATA", "$env:USERPROFILE\Downloads")
+    foreach ($p in $paths) {
+        Get-ChildItem -Path $p -Include *.exe, *.dll -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-5) } |
+        ForEach-Object { Write-Log "❌ New/Modified File: $($_.FullName) | LastWrite: $($_.LastWriteTime)" "Red" }
+    }
+}
+
+Function Monitor-RemoteSessions {
+    query user | ForEach-Object { Write-Log "Remote Session: $_" "Yellow" }
+}
+
+# ===========================
+# Timer for Real-Time Monitoring
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 5000 # 5 seconds
+
+$timer.Add_Tick({
+    Write-Log "`n[Real-Time Scan: $(Get-Date)]" "Cyan"
+    Monitor-Processes
+    Monitor-Network
+    Monitor-Files
+    Monitor-RemoteSessions
+})
+
+# ===========================
+# Start Button Action
+$btnStart.Add_Click({
+    $timer.Start()
+    Write-Log "=== Real-Time Hack / Cheat Monitor Started ===" "Green"
+    Write-Log "Log file saved at: $logFile" "Yellow"
+})
+
+# ===========================
+# Show Form
+[void]$form.ShowDialog()
