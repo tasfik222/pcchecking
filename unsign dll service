@@ -1,0 +1,193 @@
+# Get all running services and check for DLL-based services
+$services = Get-CimInstance Win32_Service | Where-Object { $_.State -eq "Running" -and $_.PathName }
+
+$results = foreach ($svc in $services) {
+    $raw = $svc.PathName
+    
+    # Check if service uses DLL (svchost or direct DLL)
+    if ($raw -match "svchost" -or $raw -match "\.dll") {
+        # Extract DLL path from command line
+        $dllPath = $null
+        
+        # Case 1: Direct DLL execution (rundll32 etc.)
+        if ($raw -match "rundll32" -and $raw -match "`"([^`"]+\.dll)`"") {
+            $dllPath = $matches[1]
+        }
+        elseif ($raw -match "`"([^`"]+\.dll)`"") {
+            $dllPath = $matches[1]
+        }
+        elseif ($raw -match "(\S+\.dll)") {
+            $dllPath = $matches[1]
+        }
+        
+        # Case 2: Svchost service - get from registry
+        if ($raw -match "svchost" -and $svc.Name) {
+            try {
+                $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$($svc.Name)\Parameters"
+                if (Test-Path $regPath) {
+                    $serviceDll = Get-ItemProperty -Path $regPath -Name "ServiceDll" -ErrorAction SilentlyContinue
+                    if ($serviceDll -and $serviceDll.ServiceDll) {
+                        $dllPath = $serviceDll.ServiceDll
+                    }
+                }
+                
+                # Alternative registry location
+                if (!$dllPath) {
+                    $regPath2 = "HKLM:\SYSTEM\CurrentControlSet\Services\$($svc.Name)"
+                    $serviceDll = Get-ItemProperty -Path $regPath2 -Name "ServiceDll" -ErrorAction SilentlyContinue
+                    if ($serviceDll -and $serviceDll.ServiceDll) {
+                        $dllPath = $serviceDll.ServiceDll
+                    }
+                }
+            }
+            catch {
+                # Registry access failed, continue with other methods
+            }
+        }
+        
+        if ($dllPath) {
+            # Resolve environment variables in path
+            $dllPath = [System.Environment]::ExpandEnvironmentVariables($dllPath)
+            
+            # Try to resolve the DLL path
+            $resolvedPath = $null
+            if (Test-Path $dllPath) {
+                $resolvedPath = Resolve-Path $dllPath
+            } else {
+                # Try common system paths
+                $systemPaths = @(
+                    $dllPath,
+                    "C:\Windows\System32\$dllPath",
+                    "C:\Windows\SysWOW64\$dllPath", 
+                    "C:\Windows\$dllPath",
+                    "C:\Windows\System32\drivers\$dllPath"
+                )
+                
+                foreach ($path in $systemPaths) {
+                    if (Test-Path $path) {
+                        $resolvedPath = Resolve-Path $path
+                        break
+                    }
+                }
+            }
+            
+            if ($resolvedPath) {
+                try {
+                    $sig = Get-AuthenticodeSignature -FilePath $resolvedPath.Path -ErrorAction Stop
+                    
+                    # Show only unsigned or problematic DLLs
+                    if ($sig.Status -ne "Valid") {
+                        [PSCustomObject]@{
+                            ServiceName = $svc.Name
+                            DisplayName = $svc.DisplayName
+                            DllPath     = $resolvedPath.Path
+                            Signature   = $sig.Status
+                            Issuer      = if ($sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { "N/A" }
+                            Type        = "DLL Service"
+                            TimeStamp   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                        }
+                    }
+                }
+                catch {
+                    # Show DLLs with signature check errors
+                    [PSCustomObject]@{
+                        ServiceName = $svc.Name
+                        DisplayName = $svc.DisplayName
+                        DllPath     = $resolvedPath.Path
+                        Signature   = "Error: $($_.Exception.Message)"
+                        Issuer      = "N/A"
+                        Type        = "DLL Service"
+                        TimeStamp   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                    }
+                }
+            }
+            else {
+                # DLL file not found
+                [PSCustomObject]@{
+                    ServiceName = $svc.Name
+                    DisplayName = $svc.DisplayName
+                    DllPath     = $dllPath
+                    Signature   = "DLL Not Found"
+                    Issuer      = "N/A"
+                    Type        = "DLL Service"
+                    TimeStamp   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                }
+            }
+        }
+    }
+}
+
+# Filter and display results
+$unsignedDlls = $results | Where-Object { 
+    $_.Signature -ne "Valid" -and 
+    $_.Signature -notmatch "Not Found"
+}
+
+$dllNotFound = $results | Where-Object { 
+    $_.Signature -match "Not Found"
+}
+
+Write-Host "=== UNSIGNED DLL SERVICES ===" -ForegroundColor Red
+$unsignedDlls | Format-Table -AutoSize
+
+Write-Host "`n=== DLL NOT FOUND SERVICES ===" -ForegroundColor Yellow
+$dllNotFound | Format-Table -AutoSize
+
+# Summary
+Write-Host "`n=== DLL SERVICES SUMMARY ===" -ForegroundColor Green
+Write-Host "Total DLL-based Services Found: $(($unsignedDlls.Count + $dllNotFound.Count))" -ForegroundColor White
+Write-Host "Unsigned DLL Services: $($unsignedDlls.Count)" -ForegroundColor Red
+Write-Host "DLL Not Found Services: $($dllNotFound.Count)" -ForegroundColor Yellow
+
+# Export to CSV
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$exportPath = "UnsignedDLLServices_$timestamp.csv"
+
+$allDllResults = $unsignedDlls + $dllNotFound
+if ($allDllResults.Count -gt 0) {
+    $allDllResults | Export-Csv -Path $exportPath -NoTypeInformation
+    Write-Host "`nDLL results exported to: $exportPath" -ForegroundColor Cyan
+}
+
+# Additional: Check all DLLs in system32 that are loaded by services
+Write-Host "`n=== CHECKING COMMON SERVICE DLLs IN SYSTEM32 ===" -ForegroundColor Cyan
+
+$commonServiceDlls = @(
+    "audiosrv.dll",
+    "bits.dll", 
+    "dhcpcore.dll",
+    "dnsapi.dll",
+    "gpsvc.dll",
+    "lmhsvc.dll",
+    "nlasvc.dll",
+    "profapi.dll",
+    "schedsvc.dll",
+    "tcpipcfg.dll",
+    "w32time.dll",
+    "wiaservc.dll",
+    "winhttp.dll",
+    "wkssvc.dll"
+)
+
+$systemDllResults = foreach ($dll in $commonServiceDlls) {
+    $dllPath = "C:\Windows\System32\$dll"
+    if (Test-Path $dllPath) {
+        $sig = Get-AuthenticodeSignature -FilePath $dllPath
+        if ($sig.Status -ne "Valid") {
+            [PSCustomObject]@{
+                DllName   = $dll
+                FilePath  = $dllPath
+                Signature = $sig.Status
+                Issuer    = if ($sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { "N/A" }
+                Type      = "System DLL"
+            }
+        }
+    }
+}
+
+if ($systemDllResults.Count -gt 0) {
+    Write-Host "`n=== UNSIGNED SYSTEM DLLs ===" -ForegroundColor Red
+    $systemDllResults | Format-Table -AutoSize
+} else {
+    Write-Host "`nAll common system DLLs are properly signed." -ForegroundColor Green
+}
