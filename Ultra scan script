@@ -1,0 +1,125 @@
+# =========================
+#  VirusTotal sys Scanner
+# =========================
+
+$VirusTotalApiKey = "fbea53db4a635688bccdc8b4241858cc5bb3ea55f6d2b91254b1c98f2d302191"
+$OutputFile = "SuspiciousDrivers_Report.txt"
+$ScanDelay = 15   # VT free-tier delay
+
+function Get-FileHash256 {
+    param([string]$FilePath)
+    try {
+        $hash = Get-FileHash -Path $FilePath -Algorithm SHA256 -ErrorAction Stop
+        return $hash.Hash
+    }
+    catch {
+        Write-Warning "Cannot hash file: $FilePath - $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Test-VirusTotal {
+    param([string]$FileHash)
+
+    if (-not $FileHash) { return $null }
+
+    $headers = @{
+        "x-apikey" = $VirusTotalApiKey
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/$FileHash" -Method Get -Headers $headers -ErrorAction Stop
+        return $response
+    }
+    catch {
+        if ($_.Exception.Response.StatusCode -eq 404) {
+            Write-Host "Not found on VirusTotal: $FileHash" -ForegroundColor Yellow
+            return "Not Found"
+        }
+        Write-Warning "API error: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+
+# =========================
+#    MAIN: DRIVER SCAN
+# =========================
+
+Write-Host "Scanning ALL loaded Windows drivers (.sys files, including PID 4)..." -ForegroundColor Green
+
+# Get all loaded drivers (includes PID 4 / kernel drivers)
+$drivers = Get-CimInstance Win32_SystemDriver |
+           Where-Object { $_.PathName -like "*.sys*" -and $_.State -eq "Running" } |
+           Select-Object -ExpandProperty PathName |
+           ForEach-Object { ($_ -replace '"','').Split(" ")[0] } |
+           Sort-Object -Unique
+
+Write-Host "Found $($drivers.Count) loaded sys drivers." -ForegroundColor Green
+
+$suspiciousResults = @()
+
+for ($i = 0; $i -lt $drivers.Count; $i++) {
+
+    $sysPath = $drivers[$i]
+
+    Write-Progress -Activity "Scanning drivers" -Status "Processing: $(Split-Path $sysPath -Leaf)" -PercentComplete (($i / $drivers.Count) * 100)
+    Write-Host "`nChecking: $sysPath" -ForegroundColor Cyan
+
+    if (!(Test-Path $sysPath)) { continue }
+
+    $fileHash = Get-FileHash256 -FilePath $sysPath
+    if (-not $fileHash) { continue }
+
+    $vtResult = Test-VirusTotal -FileHash $fileHash
+    Start-sleep -Milliseconds 200
+
+    if ($vtResult -eq "Not Found") { continue }
+    elseif ($vtResult) {
+
+        $malicious = $vtResult.data.attributes.last_analysis_stats.malicious
+        $suspicious = $vtResult.data.attributes.last_analysis_stats.suspicious
+
+        if ($malicious -gt 0 -or $suspicious -gt 0) {
+
+            $entry = [PSCustomObject]@{
+                DriverPath = $sysPath
+                SHA256     = $fileHash
+                Malicious  = $malicious
+                Suspicious = $suspicious
+                VTLink     = "https://www.virustotal.com/gui/file/$fileHash"
+            }
+
+            $suspiciousResults += $entry
+
+            Write-Host "⚠️ SUSPICIOUS: $sysPath" -ForegroundColor Red
+            Write-Host "   Malicious: $malicious | Suspicious: $suspicious" -ForegroundColor Red
+        }
+        else {
+            Write-Host "✔️ Clean: $sysPath" -ForegroundColor Green
+        }
+    }
+
+    if (($i + 1) % 4 -eq 0) {
+        Write-Host "Sleeping $ScanDelay seconds for API limits..." -ForegroundColor Yellow
+        Start-Sleep -Seconds $ScanDelay
+    }
+}
+
+Write-Progress -Activity "Scanning drivers" -Completed
+
+# -------------------------
+# Output Report
+# -------------------------
+if ($suspiciousResults.Count -gt 0) {
+
+    $suspiciousResults | Format-Table -AutoSize
+    $suspiciousResults | Out-File $OutputFile -Encoding UTF8
+
+    Write-Host "`n$($suspiciousResults.Count) suspicious drivers found!" -ForegroundColor Red
+    Write-Host "Report saved to $OutputFile" -ForegroundColor Green
+}
+else {
+    Write-Host "`nNo suspicious drivers found! ✔️" -ForegroundColor Green
+    "No suspicious drivers found - $(Get-Date)" | Out-File $OutputFile -Encoding UTF8
+}
