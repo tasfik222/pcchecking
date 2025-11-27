@@ -1,0 +1,139 @@
+# =========================
+#  VirusTotal EXE Scanner
+# =========================
+
+# Replace this with your real VirusTotal API key
+$VirusTotalApiKey = "fbea53db4a635688bccdc8b4241858cc5bb3ea55f6d2b91254b1c98f2d302191"  
+$OutputFile = "SuspiciousEXEs_Report.txt"
+$ScanDelay = 15   # delay for VT free-tier limits
+
+# --- Get SHA256 of a file ---
+function Get-FileHash256 {
+    param([string]$FilePath)
+    try {
+        $hash = Get-FileHash -Path $FilePath -Algorithm SHA256 -ErrorAction Stop
+        return $hash.Hash
+    }
+    catch {
+        Write-Warning "Cannot hash file: $FilePath - $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# --- VirusTotal Query ---
+function Test-VirusTotal {
+    param([string]$FileHash)
+
+    if (-not $FileHash) { return $null }
+
+    $headers = @{
+        "x-apikey" = $VirusTotalApiKey
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/$FileHash" -Method Get -Headers $headers -ErrorAction Stop
+        return $response
+    }
+    catch {
+        if ($_.Exception.Response.StatusCode -eq 404) {
+            Write-Host "Not found on VirusTotal: $FileHash" -ForegroundColor Yellow
+            return "Not Found"
+        }
+        Write-Warning "API error: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# =========================
+#     MAIN SCRIPT
+# =========================
+
+Write-Host "Scanning running EXE files of all processes..." -ForegroundColor Green
+
+# Get unique EXE file paths of running processes
+$executables = Get-Process | ForEach-Object {
+    try { $_.Path } catch { $null }
+} | Where-Object { $_ -and $_ -like "*.exe" } | Sort-Object -Unique
+
+Write-Host "Found $($executables.Count) running EXE files." -ForegroundColor Green
+
+$suspiciousResults = @()
+
+# Processing loop
+for ($i = 0; $i -lt $executables.Count; $i++) {
+
+    $exePath = $executables[$i]
+
+    Write-Progress -Activity "Scanning EXEs" -Status "Processing: $(Split-Path $exePath -Leaf)" -PercentComplete (($i / $executables.Count) * 100)
+    Write-Host "`nChecking: $exePath" -ForegroundColor Cyan
+
+    # Compute hash
+    $fileHash = Get-FileHash256 -FilePath $exePath
+    if (-not $fileHash) { continue }
+
+    # Query VirusTotal
+    $vtResult = Test-VirusTotal -FileHash $fileHash
+    Start-Sleep -Milliseconds 200
+
+    if ($vtResult -eq "Not Found") { continue }
+    elseif ($vtResult) {
+
+        $malicious = $vtResult.data.attributes.last_analysis_stats.malicious
+        $suspicious = $vtResult.data.attributes.last_analysis_stats.suspicious
+        
+        if ($malicious -gt 0 -or $suspicious -gt 0) {
+            $entry = [PSCustomObject]@{
+                EXEPath = $exePath
+                SHA256 = $fileHash
+                Malicious = $malicious
+                Suspicious = $suspicious
+                VTLink = "https://www.virustotal.com/gui/file/$fileHash"
+            }
+
+            $suspiciousResults += $entry
+
+            Write-Host "⚠️ SUSPICIOUS: $exePath" -ForegroundColor Red
+            Write-Host "   Malicious: $malicious | Suspicious: $suspicious" -ForegroundColor Red
+        }
+        else {
+            Write-Host "✅ Clean: $exePath" -ForegroundColor Green
+        }
+    }
+
+    # obey API limits
+    if (($i + 1) % 4 -eq 0) {
+        Write-Host "Sleeping $ScanDelay seconds for API limits..." -ForegroundColor Yellow
+        Start-Sleep -Seconds $ScanDelay
+    }
+}
+
+Write-Progress -Activity "Scanning EXEs" -Completed
+
+# --- Output Report ---
+if ($suspiciousResults.Count -gt 0) {
+
+    $report = @()
+    $report += "SUSPICIOUS EXE FILES - $(Get-Date)"
+    $report += "=" * 60
+    $report += ""
+
+    foreach ($entry in $suspiciousResults) {
+        $report += "EXE Path: $($entry.EXEPath)"
+        $report += "SHA256: $($entry.SHA256)"
+        $report += "Malicious: $($entry.Malicious)"
+        $report += "Suspicious: $($entry.Suspicious)"
+        $report += "VirusTotal: $($entry.VTLink)"
+        $report += "-" * 40
+    }
+
+    $report | Out-File $OutputFile -Encoding UTF8
+
+    Write-Host "`n$($suspiciousResults.Count) suspicious EXEs found!" -ForegroundColor Red
+    Write-Host "Report saved to $OutputFile" -ForegroundColor Green
+
+    $suspiciousResults | Format-Table -AutoSize
+}
+else {
+    Write-Host "`nNo suspicious EXE files found! ✅" -ForegroundColor Green
+    "No suspicious EXEs found - $(Get-Date)" | Out-File $OutputFile -Encoding UTF8
+}
