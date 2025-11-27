@@ -1,0 +1,116 @@
+# Get all running services and filter valid executable paths
+$services = Get-CimInstance Win32_Service | Where-Object { $_.State -eq "Running" -and $_.PathName }
+
+$results = foreach ($svc in $services) {
+    # Extract clean EXE path (removes quotes & parameters)
+    $raw = $svc.PathName
+    $exe = $raw -replace '^"','' -replace '".*?\.exe.*?"','' -replace '".*$',''
+    $exe = $exe.Trim()
+    
+    # Handle cases where path might be in quotes
+    if ($exe -match '^"([^"]+)"') {
+        $exe = $matches[1]
+    }
+    
+    # Take only the first part before space (executable path)
+    $exe = $exe.Split(" ")[0]
+    
+    # Add .exe extension if missing
+    if ($exe -notmatch '\.exe$' -and $exe -notmatch '\.dll$' -and $exe -notmatch '\.sys$') {
+        $exe = "$exe.exe"
+    }
+    
+    # Try to resolve the path
+    if (Test-Path $exe) {
+        $filePath = Resolve-Path $exe
+    } else {
+        # Try to find in System32 if it's a system service
+        $systemPaths = @(
+            $exe,
+            "C:\Windows\System32\$exe",
+            "C:\Windows\SysWOW64\$exe",
+            "C:\Windows\$exe"
+        )
+        
+        $filePath = $null
+        foreach ($path in $systemPaths) {
+            if (Test-Path $path) {
+                $filePath = Resolve-Path $path
+                break
+            }
+        }
+    }
+    
+    if ($filePath) {
+        try {
+            $sig = Get-AuthenticodeSignature -FilePath $filePath.Path -ErrorAction Stop
+            
+            # Show only unsigned or problematic signatures
+            if ($sig.Status -ne "Valid") {
+                [PSCustomObject]@{
+                    ServiceName = $svc.Name
+                    DisplayName = $svc.DisplayName
+                    ExePath     = $filePath.Path
+                    Signature   = $sig.Status
+                    Issuer      = if ($sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { "N/A" }
+                    TimeStamp   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                }
+            }
+        }
+        catch {
+            # Show services with signature check errors (likely unsigned)
+            [PSCustomObject]@{
+                ServiceName = $svc.Name
+                DisplayName = $svc.DisplayName
+                ExePath     = $filePath.Path
+                Signature   = "Error: $($_.Exception.Message)"
+                Issuer      = "N/A"
+                TimeStamp   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            }
+        }
+    }
+    else {
+        # Show services where file not found (potentially suspicious)
+        [PSCustomObject]@{
+            ServiceName = $svc.Name
+            DisplayName = $svc.DisplayName
+            ExePath     = $exe
+            Signature   = "File Not Found"
+            Issuer      = "N/A"
+            TimeStamp   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        }
+    }
+}
+
+# Display only unsigned services
+$unsignedServices = $results | Where-Object { 
+    $_.Signature -ne "Valid" -and 
+    $_.Signature -notmatch "File Not Found"
+}
+
+$fileNotFoundServices = $results | Where-Object { 
+    $_.Signature -match "File Not Found"
+}
+
+Write-Host "=== UNSIGNED EXE SERVICES ===" -ForegroundColor Red
+$unsignedServices | Format-Table -AutoSize
+
+Write-Host "`n=== FILE NOT FOUND SERVICES (Potentially Suspicious) ===" -ForegroundColor Yellow
+$fileNotFoundServices | Format-Table -AutoSize
+
+# Summary
+Write-Host "`n=== SUMMARY ===" -ForegroundColor Green
+Write-Host "Total Running Services: $($services.Count)" -ForegroundColor White
+Write-Host "Unsigned EXE Services: $($unsignedServices.Count)" -ForegroundColor Red
+Write-Host "File Not Found Services: $($fileNotFoundServices.Count)" -ForegroundColor Yellow
+Write-Host "Signed & Valid Services: $(($services.Count - $unsignedServices.Count - $fileNotFoundServices.Count))" -ForegroundColor Green
+
+# Export results to CSV
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$exportPath = "UnsignedServices_$timestamp.csv"
+
+$allResults = $unsignedServices + $fileNotFoundServices
+if ($allResults.Count -gt 0) {
+    $allResults | Export-Csv -Path $exportPath -NoTypeInformation
+    Write-Host "`nResults exported to: $exportPath" -ForegroundColor Cyan
+}
