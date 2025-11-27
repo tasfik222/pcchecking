@@ -1,0 +1,36 @@
+# Function to check file signature
+function Get-SignatureStatus {
+    param ([string]$FilePath)
+
+    try {
+        $signature = Get-AuthenticodeSignature -FilePath $FilePath
+        return $signature.Status
+    }
+    catch {
+        return "Error"
+    }
+}
+
+# Path to scan
+$scanPath = "C:\"
+
+# Get all EXE files recursively
+Write-Host "Scanning all EXE files in $scanPath. This may take a while..."
+$exeFiles = Get-ChildItem -Path $scanPath -Recurse -ErrorAction SilentlyContinue -Filter *.exe
+
+foreach ($file in $exeFiles) {
+    try {
+        $signatureStatus = Get-SignatureStatus -FilePath $file.FullName
+
+        if ($signatureStatus -ne "Valid") {
+            Write-Host "⚠️ Unsigned EXE Found:"
+            Write-Host "    $($file.FullName)"
+        }
+    }
+    catch {
+        # Skip inaccessible files
+        continue
+    }
+}
+
+Write-Host "`nScan completed!"
