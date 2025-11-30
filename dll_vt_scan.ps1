@@ -1,5 +1,5 @@
 # ===========================================================
-# VirusTotal Hash Scanner - Full PC EXE Scan
+# VirusTotal Hash Scanner - Full PC DLL Scan
 # Works on PowerShell 5.x and 7.x
 # ===========================================================
 
@@ -12,7 +12,7 @@ Write-Host "Starting scan... Log file: $LogFile" -ForegroundColor Yellow
 
 # Get all EXE files from C: drive (with better error handling)
 try {
-    $ExeFiles = Get-ChildItem -Path C:\ -Filter *.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 50
+    $ExeFiles = Get-ChildItem -Path C:\ -Filter *.dll -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 50
     Write-Host "Found $($ExeFiles.Count) EXE files to scan" -ForegroundColor Green
 } catch {
     $errorMsg = "ERROR enumerating files: $_"
