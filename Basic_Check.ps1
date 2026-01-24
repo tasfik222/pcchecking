@@ -1,7 +1,7 @@
 # =======================
 #  CONFIG
 # =======================
-$VTApiKey = "fbea53db4a635688bccdc8b4241858cc5bb3ea55f6d2b91254b1c98f2d302191"   # <-- Put your API key here
+$VTApiKey = "fbea53db4a635688bccdc8b4241858cc5bb3ea55f6d2b91254b1c98f2d302191"
 $LogPath = "ProcessScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
 # =======================
@@ -11,7 +11,7 @@ function Write-Log {
     param([string]$Message, [string]$Type = "INFO")
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "[$timestamp] [$Type] $Message"
-    Write-Host $logEntry -ForegroundColor $(if ($Type -eq "ERROR") { "Red" } elseif ($Type -eq "WARNING") { "Yellow" } else { "White" })
+    Write-Host $logEntry
     Add-Content -Path $LogPath -Value $logEntry
 }
 
@@ -20,280 +20,156 @@ function Write-Log {
 # =======================
 function Get-SignatureStatus {
     param ([string]$EXEPath)
-    
+
     try {
-        if (-not (Test-Path $EXEPath)) {
-            return "FileNotFound"
-        }
-        
-        $signature = Get-AuthenticodeSignature -FilePath $EXEPath
-        return $signature.Status.ToString()
+        if (-not (Test-Path $EXEPath)) { return "FileNotFound" }
+        (Get-AuthenticodeSignature -FilePath $EXEPath).Status.ToString()
     }
-    catch {
-        return "Error"
-    }
+    catch { "Error" }
 }
 
 # =======================
-#  FUNCTION: Scan Hash in VirusTotal
+#  FUNCTION: VirusTotal Hash Check
 # =======================
 function Check-VirusTotalHash {
     param([string]$FilePath)
 
     try {
-        if (-not (Test-Path $FilePath)) {
-            return @{ 
-                Hash = "FileNotFound"
-                Malicious = "N/A" 
-                Suspicious = "N/A"
-                Status = "File Not Found"
-                RiskLevel = "Unknown"
-            }
-        }
-
-        # Calculate SHA256 hash
-        $hash = (Get-FileHash -Path $FilePath -Algorithm SHA256 -ErrorAction Stop).Hash
-
-        Write-Host "  Calculating hash: $hash" -ForegroundColor Gray
-
-        # Check API key
-        if ($VTApiKey -eq "YOUR_VIRUSTOTAL_API_KEY" -or [string]::IsNullOrWhiteSpace($VTApiKey)) {
-            return @{ 
-                Hash = $hash
-                Malicious = "API_Key_Required" 
-                Suspicious = "API_Key_Required"
-                Status = "API Key Not Configured"
-                RiskLevel = "Unknown"
-            }
-        }
-
-        $url = "https://www.virustotal.com/api/v3/files/$hash"
+        $hash = (Get-FileHash $FilePath -Algorithm SHA256).Hash
         $headers = @{ "x-apikey" = $VTApiKey }
+        $url = "https://www.virustotal.com/api/v3/files/$hash"
 
-        Write-Host "  Querying VirusTotal..." -ForegroundColor Gray
-        $response = Invoke-RestMethod -Method GET -Uri $url -Headers $headers -ErrorAction Stop
-
+        $response = Invoke-RestMethod -Method GET -Uri $url -Headers $headers
         $stats = $response.data.attributes.last_analysis_stats
-        $malicious = $stats.malicious
-        $suspicious = $stats.suspicious
-        $undetected = $stats.undetected
-        $harmless = $stats.harmless
-        $total = $malicious + $suspicious + $undetected + $harmless
 
-        # Risk Assessment Logic
-        $riskLevel = "Clean"
-        $status = "Safe"
+        $mal = $stats.malicious
+        $sus = $stats.suspicious
+        $total = $stats.harmless + $stats.undetected + $mal + $sus
 
-        if ($malicious -ge 5) {
-            $riskLevel = "HIGH RISK"
-            $status = "MALICIOUS"
-        }
-        elseif ($malicious -ge 3) {
-            $riskLevel = "MEDIUM RISK"
-            $status = "Suspicious"
-        }
-        elseif ($malicious -ge 1 -or $suspicious -ge 3) {
-            $riskLevel = "LOW RISK"
-            $status = "Suspicious"
-        }
-        elseif ($suspicious -ge 1) {
-            $riskLevel = "MINOR RISK"
-            $status = "Minor Suspicion"
-        }
+        $risk = "Clean"
+        if ($mal -ge 5) { $risk = "HIGH RISK" }
+        elseif ($mal -ge 3) { $risk = "MEDIUM RISK" }
+        elseif ($mal -ge 1 -or $sus -ge 3) { $risk = "LOW RISK" }
 
         return @{
             Hash = $hash
-            Malicious = $malicious
-            Suspicious = $suspicious
-            TotalEngines = $total
-            DetectionRatio = "$malicious/$total"
-            RiskLevel = $riskLevel
-            Status = $status
+            Malicious = $mal
+            Suspicious = $sus
+            Detection = "$mal/$total"
+            Risk = $risk
         }
     }
     catch {
-        return @{ 
-            Hash = "Unknown"
-            Malicious = "Error" 
-            Suspicious = "Error"
-            Status = "Scan Error"
-            RiskLevel = "Unknown"
-        }
+        return @{ Hash="Error"; Malicious="Error"; Suspicious="Error"; Detection="N/A"; Risk="Unknown" }
     }
 }
 
 # =======================
-#  FUNCTION: Get File Information
+#  FUNCTION: File Details
 # =======================
 function Get-FileDetails {
     param([string]$FilePath)
-    
+
     try {
-        if (-not (Test-Path $FilePath)) {
-            return @{ Company = "N/A"; Description = "N/A"; Version = "N/A"; FileSize = "N/A" }
-        }
-        
-        $fileInfo = Get-Item $FilePath
-        $versionInfo = $fileInfo.VersionInfo
-        
+        $f = Get-Item $FilePath
+        $v = $f.VersionInfo
         return @{
-            Company = if ($versionInfo.CompanyName) { $versionInfo.CompanyName } else { "N/A" }
-            Description = if ($versionInfo.FileDescription) { $versionInfo.FileDescription } else { "N/A" }
-            Version = if ($versionInfo.FileVersion) { $versionInfo.FileVersion } else { "N/A" }
-            FileSize = "$([math]::Round($fileInfo.Length / 1KB, 2)) KB"
+            Company = $v.CompanyName
+            Description = $v.FileDescription
+            Version = $v.FileVersion
+            SizeKB = [math]::Round($f.Length / 1KB,2)
         }
     }
     catch {
-        return @{ Company = "Error"; Description = "Error"; Version = "Error"; FileSize = "Error" }
+        return @{ Company="N/A"; Description="N/A"; Version="N/A"; SizeKB="N/A" }
     }
 }
 
 # =======================
-#  MAIN PROCESS SCAN
+#  MAIN SCAN
 # =======================
 function Start-ProcessSecurityScan {
-    Write-Log "Starting process security scan..."
-    Write-Log "Log file: $LogPath"
-    
-    # Track scanned files to avoid duplicates
+
+    Write-Log "Starting FULL C:\ process scan"
+
     $scannedFiles = @{}
-    $unsignedCount = 0
-    $suspiciousCount = 0
-    
-    try {
-        $allProcesses = Get-Process -ErrorAction SilentlyContinue
-        
-        Write-Log "Found $($allProcesses.Count) running processes"
-        
-        foreach ($process in $allProcesses) {
-            try {
-                Write-Host "`nChecking process: $($process.ProcessName) (PID: $($process.Id))" -ForegroundColor Cyan
-                
-                # Skip system processes to reduce noise
-                if ($process.ProcessName -eq "Idle" -or $process.ProcessName -eq "System") {
+    $unsigned = 0
+    $suspicious = 0
+
+    $processes = Get-Process -ErrorAction SilentlyContinue
+
+    foreach ($p in $processes) {
+        try {
+            foreach ($m in $p.Modules) {
+
+                $modulePath = $m.FileName
+
+                # ONLY RULE: must be C:\
+                if ([string]::IsNullOrEmpty($modulePath) `
+                    -or -not ($modulePath.StartsWith("C:\")) `
+                    -or $scannedFiles.ContainsKey($modulePath)) {
                     continue
                 }
-                
-                $modules = $process.Modules
 
-                foreach ($module in $modules) {
-                    try {
-                        $modulePath = $module.FileName
-                        
-                        # Skip if no path or already scanned
-                        if ([string]::IsNullOrEmpty($modulePath) -or $scannedFiles.ContainsKey($modulePath)) {
-                            continue
-                        }
-                        
-                        # Skip Windows system files
-                        if ($modulePath -like "*\System32\*" -or 
-                            $modulePath -like "*\SysWOW64\*" -or 
-                            $modulePath -like "*\Windows\*" -or
-                            $modulePath -like "*\Program Files\*" -or
-                            $modulePath -like "*\Program Files (x86)\*") {
-                            continue
-                        }
-                        
-                        $scannedFiles[$modulePath] = $true
-                        
-                        # Check signature
-                        $signatureStatus = Get-SignatureStatus -EXEPath $modulePath
-                        
-                        if ($signatureStatus -ne "Valid") {
-                            $unsignedCount++
-                            $fileDetails = Get-FileDetails -FilePath $modulePath
-                            
-                            Write-Host "------------------------------------------------------" -ForegroundColor Yellow
-                            Write-Host "Unsigned or Invalid EXE Found:" -ForegroundColor Yellow
-                            Write-Host "Process:    $($process.ProcessName) (PID: $($process.Id))" -ForegroundColor Yellow
-                            Write-Host "Module:     $($module.ModuleName)" -ForegroundColor Yellow
-                            Write-Host "Path:       $modulePath" -ForegroundColor Yellow
-                            Write-Host "Signature:  $signatureStatus" -ForegroundColor Yellow
-                            Write-Host "Company:    $($fileDetails.Company)" -ForegroundColor Yellow
-                            Write-Host "Description:$($fileDetails.Description)" -ForegroundColor Yellow
-                            Write-Host "Version:    $($fileDetails.Version)" -ForegroundColor Yellow
-                            Write-Host "File Size:  $($fileDetails.FileSize)" -ForegroundColor Yellow
-                            
-                            # VirusTotal scan
-                            Write-Host "Scanning VirusTotal..." -ForegroundColor Gray
-                            $vtResult = Check-VirusTotalHash -FilePath $modulePath
-                            
-                            # Display results
-                            Write-Host "VirusTotal Results:" -ForegroundColor White
-                            Write-Host "SHA256:     $($vtResult.Hash)" -ForegroundColor Gray
-                            Write-Host "Malicious:  $($vtResult.Malicious)" -ForegroundColor $(if ($vtResult.Malicious -gt 0) { "Red" } else { "Gray" })
-                            Write-Host "Suspicious: $($vtResult.Suspicious)" -ForegroundColor $(if ($vtResult.Suspicious -gt 0) { "Yellow" } else { "Gray" })
-                            Write-Host "Detection:  $($vtResult.DetectionRatio)" -ForegroundColor Gray
-                            Write-Host "Risk Level: $($vtResult.RiskLevel)" -ForegroundColor $(if ($vtResult.RiskLevel -eq "HIGH RISK") { "Red" } elseif ($vtResult.RiskLevel -eq "MEDIUM RISK") { "Yellow" } else { "Gray" })
-                            Write-Host "Status:     $($vtResult.Status)" -ForegroundColor $(if ($vtResult.Status -eq "MALICIOUS") { "Red" } elseif ($vtResult.Status -eq "Suspicious") { "Yellow" } else { "Gray" })
-                            
-                            # Alert for dangerous files
-                            if ($vtResult.Malicious -ge 3) {
-                                Write-Host "🚨 DANGER: This file is detected as MALICIOUS by $($vtResult.Malicious) engines!" -ForegroundColor Red
-                                Write-Host "🚨 Recommended action: Investigate immediately!" -ForegroundColor Red
-                                $suspiciousCount++
-                            }
-                            elseif ($vtResult.Malicious -ge 1 -or $vtResult.Suspicious -ge 3) {
-                                Write-Host "⚠️ WARNING: This file shows suspicious activity!" -ForegroundColor Yellow
-                                $suspiciousCount++
-                            }
-                            
-                            Write-Host "------------------------------------------------------" -ForegroundColor Yellow
-                            
-                            # Small delay to avoid rate limiting
-                            Start-Sleep -Milliseconds 500
-                        }
+                $scannedFiles[$modulePath] = $true
+
+                $sig = Get-SignatureStatus $modulePath
+
+                if ($sig -ne "Valid") {
+
+                    $unsigned++
+                    Write-Host "`n============================" -ForegroundColor Yellow
+                    Write-Host "Process : $($p.ProcessName)  PID:$($p.Id)" -ForegroundColor Yellow
+                    Write-Host "Path    : $modulePath" -ForegroundColor Yellow
+                    Write-Host "Signature: $sig" -ForegroundColor Yellow
+
+                    $info = Get-FileDetails $modulePath
+                    Write-Host "Company : $($info.Company)"
+                    Write-Host "Desc    : $($info.Description)"
+                    Write-Host "Version : $($info.Version)"
+                    Write-Host "Size KB : $($info.SizeKB)"
+
+                    Write-Host "VirusTotal Scan..." -ForegroundColor Gray
+                    $vt = Check-VirusTotalHash $modulePath
+
+                    Write-Host "Hash     : $($vt.Hash)"
+                    Write-Host "Detection: $($vt.Detection)"
+                    Write-Host "Risk     : $($vt.Risk)" -ForegroundColor Red
+
+                    if ($vt.Malicious -ge 3) {
+                        Write-Host "🚨 MALICIOUS FILE DETECTED" -ForegroundColor Red
+                        $suspicious++
                     }
-                    catch {
-                        # Skip module errors
-                    }
+
+                    Start-Sleep -Milliseconds 500
                 }
             }
-            catch {
-                # Skip process errors
-            }
         }
-        
-        # Summary
-        Write-Host "`n=== SCAN SUMMARY ===" -ForegroundColor Green
-        Write-Host "Total processes scanned: $($allProcesses.Count)" -ForegroundColor White
-        Write-Host "Total unique files checked: $($scannedFiles.Count)" -ForegroundColor White
-        Write-Host "Unsigned/invalid files found: $unsignedCount" -ForegroundColor $(if ($unsignedCount -gt 0) { "Yellow" } else { "White" })
-        Write-Host "Suspicious files detected: $suspiciousCount" -ForegroundColor $(if ($suspiciousCount -gt 0) { "Red" } else { "White" })
-        Write-Host "Scan completed. Log saved to: $LogPath" -ForegroundColor Green
-        
+        catch {}
     }
-    catch {
-        Write-Host "Error during process scan: $($_.Exception.Message)" -ForegroundColor Red
-    }
+
+    Write-Host "`n===== SCAN SUMMARY =====" -ForegroundColor Green
+    Write-Host "Total unique files scanned: $($scannedFiles.Count)"
+    Write-Host "Unsigned files found     : $unsigned"
+    Write-Host "Suspicious files         : $suspicious"
+    Write-Host "Log file saved to        : $LogPath" -ForegroundColor Green
 }
 
 # =======================
 #  EXECUTION
 # =======================
-Write-Host "=== Process Security Scanner ===" -ForegroundColor Green
-Write-Host "This script scans running processes for unsigned executables" -ForegroundColor Gray
-Write-Host "and checks them against VirusTotal." -ForegroundColor Gray
-Write-Host ""
+Write-Host "=== FULL C:\ PROCESS SECURITY SCANNER ===" -ForegroundColor Green
 
-# Check if running as administrator
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+$isAdmin = ([Security.Principal.WindowsPrincipal] `
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
-    Write-Host "Warning: Not running as administrator. Some processes may not be accessible." -ForegroundColor Yellow
+    Write-Host "⚠️ Run as Administrator for full visibility" -ForegroundColor Yellow
 }
 
-# Check API key
-if ($VTApiKey -eq "YOUR_VIRUSTOTAL_API_KEY" -or [string]::IsNullOrWhiteSpace($VTApiKey)) {
-    Write-Host "Warning: VirusTotal API key not configured. VirusTotal scanning will not work." -ForegroundColor Yellow
-    Write-Host "Get free API key from: https://www.virustotal.com/gui/join-us" -ForegroundColor Gray
-}
-
-Write-Host "`nStarting scan in 3 seconds..." -ForegroundColor Gray
-Start-Sleep -Seconds 3
-
-# Start the scan
+Start-Sleep 2
 Start-ProcessSecurityScan
 
-Write-Host "`nPress any key to exit..." -ForegroundColor Gray
+Write-Host "`nPress any key to exit..."
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
