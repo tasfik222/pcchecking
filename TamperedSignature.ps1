@@ -1,211 +1,142 @@
 # =======================
-#  CONFIG
+# CONFIG
 # =======================
 $VTApiKey = "fbea53db4a635688bccdc8b4241858cc5bb3ea55f6d2b91254b1c98f2d302191"
 $LogPath = "ProcessScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
 # =======================
-#  FUNCTION: Initialize Logging
+# GLOBAL COLLECTIONS
+# =======================
+$ScannedFiles   = @{}
+$TamperedFiles  = @{}
+
+# =======================
+# LOGGING
 # =======================
 function Write-Log {
-    param([string]$Message, [string]$Type = "INFO")
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logEntry = "[$timestamp] [$Type] $Message"
-    Write-Host $logEntry -ForegroundColor $(if ($Type -eq "ERROR") { "Red" } elseif ($Type -eq "WARNING") { "Yellow" } else { "White" })
-    Add-Content -Path $LogPath -Value $logEntry
+    param([string]$Message,[string]$Type="INFO")
+    $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $e = "[$t][$Type] $Message"
+    Write-Host $e
+    Add-Content $LogPath $e
 }
 
 # =======================
-#  FUNCTION: Full Signature Check (Fake Signature Detection)
+# SIGNATURE CHECK
 # =======================
 function Get-SignatureStatus {
-    param ([string]$EXEPath)
-
+    param($Path)
     try {
-        if (-not (Test-Path $EXEPath)) {
-            return "FileNotFound"
-        }
-
-        $sig = Get-AuthenticodeSignature -FilePath $EXEPath
-
-        # No signature
-        if ($sig.Status -eq "NotSigned") {
-            return "NotSigned"
-        }
-
-        # Broken or invalid signature
-        if ($sig.Status -ne "Valid") {
-            return "TamperedSignature"
-        }
-
-        # Extra verification
-        $cert = $sig.SignerCertificate
-
-        # Certificate expired → fake or reused cert
-        if ($cert.NotAfter -lt (Get-Date)) {
-            return "FakeSignature_ExpiredCert"
-        }
-
-        # Certificate not valid yet → manipulated
-        if ($cert.NotBefore -gt (Get-Date)) {
-            return "FakeSignature_FutureCert"
-        }
-
-        # Validate certificate chain
-        $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain
-        $trusted = $chain.Build($cert)
-
-        if (-not $trusted) {
-            return "FakeSignature_UntrustedChain"
-        }
-
-        # Suspicious Issuer (cheap CA)
-        $issuer = $cert.Issuer
-        if ($issuer -notmatch "Microsoft|Google|Adobe|NVIDIA|Intel|Dell|HP|Valve|Steam|AMD|Cisco|Oracle") {
-            return "SuspiciousIssuer"
-        }
-
+        if (-not (Test-Path $Path)) { return "Missing" }
+        $sig = Get-AuthenticodeSignature $Path
+        if ($sig.Status -eq "NotSigned") { return "NotSigned" }
+        if ($sig.Status -ne "Valid") { return "TamperedSignature" }
         return "Valid"
-    }
-    catch {
-        return "Error"
-    }
+    } catch { return "Error" }
 }
 
 # =======================
-#  FUNCTION: Scan Hash in VirusTotal
+# VIRUSTOTAL
 # =======================
-function Check-VirusTotalHash {
-    param([string]$FilePath)
-
+function Check-VT {
+    param($Path)
     try {
-        if (-not (Test-Path $FilePath)) {
-            return @{ Status = "FileNotFound"; RiskLevel = "Unknown"; Hash="N/A"; Malicious="N/A"; Suspicious="N/A" }
-        }
+        $hash = (Get-FileHash $Path -Algorithm SHA256).Hash
+        if (-not $VTApiKey) { return @{ Risk="NO_API"; Hash=$hash } }
 
-        $hash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash
+        $h = @{ "x-apikey" = $VTApiKey }
+        $u = "https://www.virustotal.com/api/v3/files/$hash"
+        $r = Invoke-RestMethod $u -Headers $h -ErrorAction Stop
 
-        if ([string]::IsNullOrWhiteSpace($VTApiKey)) {
-            return @{ Status = "APIKeyMissing"; Hash=$hash }
-        }
+        $s = $r.data.attributes.last_analysis_stats
+        if ($s.malicious -ge 3) { $risk="HIGH" }
+        elseif ($s.malicious -ge 1) { $risk="LOW" }
+        else { $risk="CLEAN" }
 
-        $url = "https://www.virustotal.com/api/v3/files/$hash"
-        $headers = @{ "x-apikey" = $VTApiKey }
-
-        $response = Invoke-RestMethod -Method GET -Uri $url -Headers $headers
-
-        $stats = $response.data.attributes.last_analysis_stats
-        $mal = $stats.malicious
-        $sus = $stats.suspicious
-
-        # Risk Logic
-        if ($mal -ge 5) { $risk = "HIGH RISK"; $st="MALICIOUS" }
-        elseif ($mal -ge 3) { $risk = "MEDIUM RISK"; $st="Suspicious" }
-        elseif ($mal -ge 1 -or $sus -ge 3) { $risk = "LOW RISK"; $st="Suspicious" }
-        elseif ($sus -ge 1) { $risk = "MINOR RISK"; $st="Minor" }
-        else { $risk = "Clean"; $st="Safe" }
-
-        return @{
-            Hash=$hash
-            Malicious=$mal
-            Suspicious=$sus
-            DetectionRatio="$mal/$($stats.harmless+$stats.undetected+$mal+$sus)"
-            RiskLevel=$risk
-            Status=$st
-        }
-    }
-    catch {
-        return @{ Status="Error"; RiskLevel="Unknown"; Hash="Error" }
+        return @{ Risk=$risk; Malicious=$s.malicious }
+    } catch {
+        return @{ Risk="ERROR" }
     }
 }
 
 # =======================
-#  FUNCTION: Get File Information
+# FILE SCAN
 # =======================
-function Get-FileDetails {
-    param([string]$FilePath)
+function Scan-File {
+    param($Path,$Type)
 
-    try {
-        $file = Get-Item $FilePath
-        $v = $file.VersionInfo
+    if ($ScannedFiles.ContainsKey($Path)) { return }
+    $ScannedFiles[$Path] = $true
 
-        return @{
-            Company = $v.CompanyName
-            Description = $v.FileDescription
-            Version = $v.FileVersion
-            FileSize = "$([math]::Round($file.Length / 1KB, 2)) KB"
+    Write-Host "`n[$Type] Scanning: $Path" -ForegroundColor Cyan
+
+    $sig = Get-SignatureStatus $Path
+
+    if ($sig -ne "Valid") {
+        Write-Host " Signature: $sig" -ForegroundColor Yellow
+
+        # Store tampered files
+        if (-not $TamperedFiles.ContainsKey($Path)) {
+            $TamperedFiles[$Path] = $sig
         }
+
+        $vt = Check-VT $Path
+        Write-Host " VT Risk: $($vt.Risk)" -ForegroundColor Red
     }
-    catch {
-        return @{ Company="N/A"; Description="N/A"; Version="N/A"; FileSize="N/A" }
-    }
+
+    Start-Sleep -Milliseconds 200
 }
 
 # =======================
-#  MAIN PROCESS SCAN
+# MAIN SCAN
 # =======================
-function Start-ProcessSecurityScan {
-    
-    Write-Log "Starting process scan..."
-    $scanned = @{}
-    $unsigned = 0
-    $suspicious = 0
+function Start-FullScan {
 
-    $procs = Get-Process
+    Write-Log "Starting FULL EXE + DLL scan"
+
+    $procs = Get-Process -ErrorAction SilentlyContinue
 
     foreach ($p in $procs) {
         try {
+            # Scan main EXE
+            if ($p.Path) {
+                Scan-File $p.Path "PROCESS"
+            }
+
+            # Scan loaded modules (DLL)
             foreach ($m in $p.Modules) {
-
-                $path = $m.FileName
-
-                if (-not $path -or $scanned.ContainsKey($path)) { continue }
-                if ($path -like "*System32*" -or $path -like "*Windows*") { continue }
-
-                $scanned[$path] = $true
-
-                Write-Host "`nScanning: $path" -ForegroundColor Cyan
-
-                # Signature Check
-                $sig = Get-SignatureStatus $path
-
-                if ($sig -ne "Valid") {
-                    $unsigned++
-
-                    Write-Host "Signature: $sig" -ForegroundColor Yellow
-                    $info = Get-FileDetails $path
-                    Write-Host "Company: $($info.Company)"
-                    Write-Host "Description: $($info.Description)"
-                    Write-Host "Version: $($info.Version)"
-                    Write-Host "Size: $($info.FileSize)"
-
-                    Write-Host "VirusTotal Checking..." -ForegroundColor Gray
-                    $vt = Check-VirusTotalHash $path
-
-                    Write-Host "VT Result: $($vt.RiskLevel)" -ForegroundColor Red
-
-                    if ($vt.Malicious -ge 3 -or $sig -like "FakeSignature*") {
-                        Write-Host "🚨 HIGH RISK FILE DETECTED!" -ForegroundColor Red
-                        $suspicious++
+                try {
+                    if ($m.FileName) {
+                        Scan-File $m.FileName "MODULE"
                     }
-                }
-
-                Start-Sleep -Milliseconds 400
+                } catch {}
             }
         }
-        catch {}
+        catch {
+            Write-Log "Access denied: $($p.ProcessName)" "WARNING"
+        }
     }
 
-    Write-Host "`n--- SCAN SUMMARY ---" -ForegroundColor Green
-    Write-Host "Total Files Scanned: $($scanned.Count)"
-    Write-Host "Unsigned / Fake Signature Files: $unsigned" -ForegroundColor Yellow
-    Write-Host "Suspicious Files: $suspicious" -ForegroundColor Red
-    Write-Host "Log saved: $LogPath"
+    # =======================
+    # SUMMARY
+    # =======================
+    Write-Host "`n========== FINAL SUMMARY ==========" -ForegroundColor Green
+    Write-Host "Total Files Scanned   : $($ScannedFiles.Count)"
+    Write-Host "Tampered / Unsigned   : $($TamperedFiles.Count)" -ForegroundColor Red
+
+    if ($TamperedFiles.Count -gt 0) {
+        Write-Host "`n--- TAMPERED FILE LIST ---" -ForegroundColor Yellow
+        foreach ($k in $TamperedFiles.Keys) {
+            Write-Host "[$($TamperedFiles[$k])] $k" -ForegroundColor Red
+        }
+    }
+
+    Write-Host "`nLog saved to: $LogPath"
 }
 
 # =======================
-#  START
+# START
 # =======================
-Write-Host "Starting in 3 seconds..."
+Write-Host "Starting scan in 3 seconds..."
 Start-Sleep 3
-Start-ProcessSecurityScan
+Start-FullScan
