@@ -74,3 +74,507 @@ Spooler – Print Spooler
 SysMain – Superfetch (Performance Optimization)
 
 CryptSvc – Cryptographic Services
+
+
+
+
+
+Regedit : 
+
+
+
+
+
+
+```
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunOnce
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnce
+HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Run
+HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce
+```
+
+---
+
+# 🧠 2️⃣ Installed Programs & Uninstall History
+
+Cheat loader অনেক সময় uninstall key-তে trace রেখে যায়।
+
+```
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall
+HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall
+```
+
+---
+
+# ⚙️ 3️⃣ Services & Drivers (Kernel Level Cheat Check)
+
+Kernel driver cheat detect করতে গুরুত্বপূর্ণ।
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services
+HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Services
+HKEY_LOCAL_MACHINE\SYSTEM\ControlSet002\Services
+```
+
+🔍 সন্দেহজনক:
+
+* Random name driver
+* No description
+* Recently created service
+
+---
+
+# 🖥 4️⃣ Recently Executed Programs (UserAssist & BAM)
+
+### UserAssist (GUI app run history)
+
+```
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist
+```
+
+### BAM (Background Activity Monitor)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings
+```
+
+---
+
+# 🗂 5️⃣ MuiCache (Executed Program Cache)
+
+```
+HKEY_CURRENT_USER\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache
+```
+
+---
+
+# 📜 6️⃣ Prefetch Related (Indirect via Registry)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters
+```
+
+(মূল ফাইল থাকে: `C:\Windows\Prefetch`)
+
+---
+
+# 🛠 7️⃣ AppCompat & Compatibility Assistant
+
+```
+HKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags
+```
+
+---
+
+# 🧩 8️⃣ Known DLL Injection Locations
+
+```
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Windows\AppInit_DLLs
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+```
+
+---
+
+# 🔐 9️⃣ Hardware ID / Spoofer Trace Check
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\IDConfigDB
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SystemInformation
+HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System
+```
+
+---
+
+# 🎮 🔎 10️⃣ Game Specific Registry
+
+গেম অনুযায়ী check করতে হয়, যেমন:
+
+* Riot Games
+* EasyAntiCheat
+* BattlEye
+* FaceIT
+* Vanguard
+
+(প্রতিটি গেমের আলাদা path থাকে)
+
+---
+
+# ⚠️ গুরুত্বপূর্ণ বাস্তবতা
+
+❌ Registry check করলেই 100% cheat ধরা যায় না
+❌ অনেক cheat RAM-only (fileless)
+❌ অনেক cheat self-delete করে
+❌ অনেক cheat virtualization use করে
+
+---
+
+# 💡 Professional Anti-Cheat কী কী করে?
+
+* Kernel level driver scan
+* Running process memory scan
+* Driver signature verification
+* Hypervisor detection
+* DMA detection
+* File hash scan
+* Event log correlation
+
+Registry check হলো **small part only**।
+
+
+
+HKEY_CLASSES_ROOT\*\shellex\ContextMenuHandlers
+HKEY_CLASSES_ROOT\Directory\shellex\ContextMenuHandlers
+HKEY_CLASSES_ROOT\Drive\shellex\ContextMenuHandlers
+HKEY_LOCAL_MACHINE\Software\Classes\*\shellex\ContextMenuHandlers
+```
+
+---
+
+# 🧩 12️⃣ DLL Injection / IFEO Debugger Abuse
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options
+```
+
+🔎 Suspicious:
+
+* `Debugger` value set
+* Random exe targeting game.exe
+
+---
+
+# ⚙️ 13️⃣ Winlogon Persistence
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+```
+
+Check:
+
+* Shell
+* Userinit
+* Notify
+
+---
+
+# 🔄 14️⃣ Scheduled Task Registry Trace
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks
+```
+
+---
+
+# 🧬 15️⃣ WMI Persistence
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Wbem
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WBEM\CIMOM
+```
+
+(Actual check via WMI repository needed)
+
+---
+
+# 🖥 16️⃣ Explorer Run History
+
+```
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs
+```
+
+---
+
+# 📦 17️⃣ Mounted Devices (Spoofer Trace)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\MountedDevices
+```
+
+---
+
+# 🔐 18️⃣ USB History
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USBSTOR
+```
+
+---
+
+# 🧾 19️⃣ Event Log Configuration
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\EventLog
+```
+
+---
+
+# 🛡 20️⃣ Security Provider / LSA Injection
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa
+```
+
+Check:
+
+* Security Packages
+* Authentication Packages
+* Notification Packages
+
+---
+
+# 🧨 21️⃣ AppInit DLL Global Injection
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows
+```
+
+Check:
+
+* AppInit_DLLs
+* LoadAppInit_DLLs
+
+---
+
+# 🧠 22️⃣ BAM & DAM (Win10+ Execution Tracking)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\dam\State\UserSettings
+```
+
+---
+
+# 🧩 23️⃣ COM Object Hijacking
+
+```
+HKEY_CLASSES_ROOT\CLSID
+HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID
+```
+
+---
+
+# ⚡ 24️⃣ Firewall Rules (Hidden Loader)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy
+```
+
+---
+
+# 🎯 25️⃣ Environment Variable Abuse
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment
+HKEY_CURRENT_USER\Environment
+```
+
+---
+
+# ⚠️ বাস্তবতা (গুরুত্বপূর্ণ)
+
+এখনো এটা “complete full list” না।
+
+কারণ:
+
+* Registry পুরোটা check করতে হলে dump নিয়ে full scan করতে হয়
+* Cheat maker যেকোনো random key বানাতে পারে
+* RAM-only cheat কোনো registry trace রাখে না
+* Kernel driver load হলে registry clean করেও চালানো যায়
+
+---
+
+# 🔥 Professional Level PC Check করতে হলে
+
+Registry check যথেষ্ট না। লাগবে:
+
+* 🔍 Autoruns scan
+* 🔍 Driver signature verification
+* 🔍 Loaded kernel module check
+* 🔍 Memory dump scan
+* 🔍 Hypervisor detection
+* 🔍 DMA device detection
+* 🔍 Prefetch + Event Log correlation
+* 🔍 Shimcache & Amcache parsing
+
+
+
+
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager
+```
+
+Check:
+
+* BootExecute
+* PendingFileRenameOperations
+* SetupExecute
+
+---
+
+# 🧬 27️⃣ KnownDLLs (DLL Replacement Attempt)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\KnownDLLs
+```
+
+---
+
+# 🔐 28️⃣ SafeBoot Configuration
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SafeBoot
+```
+
+---
+
+# 🧩 29️⃣ Load Order Groups (Driver Load Priority)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\ServiceGroupOrder
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\GroupOrderList
+```
+
+---
+
+# 🛠 30️⃣ Network Provider Hijack
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\NetworkProvider\Order
+```
+
+---
+
+# 🖥 31️⃣ Explorer Shell Hijack
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+HKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\Winlogon
+```
+
+Check:
+
+* Shell
+* Userinit
+
+---
+
+# 📦 32️⃣ App Paths (Hidden Executable Registration)
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+```
+
+---
+
+# 🧠 33️⃣ File Association Hijack
+
+```
+HKEY_CLASSES_ROOT\.exe
+HKEY_CLASSES_ROOT\exefile\shell\open\command
+HKEY_CLASSES_ROOT\.bat
+HKEY_CLASSES_ROOT\.cmd
+```
+
+---
+
+# 🔄 34️⃣ Policies (Execution Restriction Bypass)
+
+```
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies
+```
+
+---
+
+# 🔥 35️⃣ Windows Defender Tamper Check
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Defender
+HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows Defender
+```
+
+---
+
+# 🧾 36️⃣ Cryptographic Spoof Trace
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SystemCertificates
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography
+```
+
+---
+
+# 🧩 37️⃣ BAM/DAM (All Control Sets)
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Services\bam\State\UserSettings
+HKEY_LOCAL_MACHINE\SYSTEM\ControlSet002\Services\bam\State\UserSettings
+```
+
+---
+
+# 🖧 38️⃣ TCP/IP Parameter Manipulation
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters
+```
+
+---
+
+# 🧨 39️⃣ Kernel Debug Settings
+
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CrashControl
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Debug
+```
+
+---
+
+# 🧬 40️⃣ Amcache Trace
+
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store
+```
+
+---
+
+# ⚠️ গুরুত্বপূর্ণ বাস্তব সত্য
+
+এখনও এটা “শেষ” না।
+
+কারণ:
+
+* Registry dump করলে লক্ষ লক্ষ key পাওয়া যাবে
+* Cheat random GUID name ব্যবহার করতে পারে
+* Kernel cheat registry clean করে চালাতে পারে
+* DMA cheat registry ব্যবহারই করে না
+* RAM-only cheat কোনো trace রাখে না
+
+---
+
+# 🎯 বাস্তব Anti-Cheat Level Approach
+
+Professional anti-cheat শুধু registry check করে না। তারা করে:
+
+* Kernel driver integrity check
+* Secure boot validation
+* TPM validation
+* Hypervisor detection
+* Physical DMA device scan
+* Memory signature scan
+* Manual mapper detection
+* Page table integrity check
+
+Registry check = ছোট অংশ মাত্র।
+
