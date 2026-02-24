@@ -1,1 +1,76 @@
  Extract file paths using regex ^([a-zA-Z]:\\.+)\\?$ in System Informer (use services like Explorer, SearchIndexer, Csrss high or low bytes)
+
+
+
+Svchost.exe time : 
+🔹 1. Event & Logging Related
+
+EventLog – Windows Event Log
+
+Schedule – Task Scheduler
+
+W32Time – Windows Time
+
+WerSvc – Windows Error Reporting
+
+🔹 2. Network Related Services
+
+Dhcp – DHCP Client
+
+Dnscache – DNS Client
+
+NlaSvc – Network Location Awareness
+
+Netman – Network Connections
+
+LanmanWorkstation – Workstation
+
+LanmanServer – Server
+
+WinHttpAutoProxySvc – WinHTTP Web Proxy
+
+🔹 3. Security Related
+
+wscsvc – Security Center
+
+WinDefend – Windows Defender
+
+mpssvc – Windows Defender Firewall
+
+Sense – Windows Defender Advanced Threat Protection
+
+🔹 4. System Core Services
+
+RpcSs – Remote Procedure Call (Very Important)
+
+DcomLaunch – DCOM Server Process Launcher
+
+PlugPlay – Plug and Play
+
+Power – Power Management
+
+ProfSvc – User Profile Service
+
+LSM – Local Session Manager
+
+ShellHWDetection – Hardware Detection
+
+🔹 5. Update & Maintenance
+
+wuauserv – Windows Update
+
+UsoSvc – Update Orchestrator Service
+
+BITS – Background Intelligent Transfer Service
+
+🔹 6. Other Common Auto Services
+
+Themes – Windows Theme Service
+
+AudioSrv – Windows Audio
+
+Spooler – Print Spooler
+
+SysMain – Superfetch (Performance Optimization)
+
+CryptSvc – Cryptographic Services
