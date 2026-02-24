@@ -6,7 +6,7 @@ if (!(Test-Path $baselineFile)) {
     exit
 }
 
-Write-Host "Checking for deleted EXE and DLL files..." -ForegroundColor Yellow
+Write-Host "Checking for deleted files (ALL extensions)..." -ForegroundColor Yellow
 
 # Read baseline
 $baseline = Get-Content $baselineFile
@@ -19,9 +19,10 @@ foreach ($file in $baseline) {
 }
 
 if ($missing.Count -eq 0) {
-    Write-Host "`n[✔] No EXE or DLL files deleted." -ForegroundColor Green
+    Write-Host "`n[✔] No files deleted." -ForegroundColor Green
 } else {
-    Write-Host "`n[⚠] Deleted EXE/DLL files detected:" -ForegroundColor Red
+    Write-Host "`n[⚠] Deleted files detected:" -ForegroundColor Red
+    
     foreach ($m in $missing) {
         Write-Host "  - $m" -ForegroundColor Red
     }
@@ -29,5 +30,7 @@ if ($missing.Count -eq 0) {
     # Save missing result
     $missingFile = "C:\ProgramData\deleted_files_list.txt"
     $missing | Out-File $missingFile -Encoding UTF8
-    Write-Host "`nSaved list: $missingFile" -ForegroundColor Cyan
+
+    Write-Host "`nTotal deleted files: $($missing.Count)" -ForegroundColor Yellow
+    Write-Host "Saved list: $missingFile" -ForegroundColor Cyan
 }
