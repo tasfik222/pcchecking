@@ -1,0 +1,10 @@
+$OutputFile = "C:\unsigned_exe_list.txt"
+
+Get-ChildItem -Path C:\ -Filter *.exe -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    $signature = Get-AuthenticodeSignature $_.FullName
+    if ($signature.Status -ne "Valid") {
+        $_.FullName
+    }
+} | Out-File $OutputFile
+
+Write-Host "Scan Complete. Check: $OutputFile"
