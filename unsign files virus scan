@@ -1,0 +1,65 @@
+# Ask for TXT file path
+$txtPath = Read-Host "Enter full path of the TXT file (with file paths inside)"
+
+if (!(Test-Path $txtPath)) {
+    Write-Host "TXT file not found!" -ForegroundColor Red
+    exit
+}
+
+# Ask for VirusTotal API Key
+$apiKey = Read-Host "Enter your VirusTotal API Key"
+
+# Read file paths from txt
+$filePaths = Get-Content $txtPath
+
+$maliciousList = @()
+$suspiciousList = @()
+
+foreach ($file in $filePaths) {
+
+    if (Test-Path $file) {
+
+        try {
+            # Get SHA256 hash
+            $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash
+
+            Write-Host "Checking: $file"
+
+            # Query VirusTotal
+            $headers = @{
+                "x-apikey" = $apiKey
+            }
+
+            $response = Invoke-RestMethod -Method Get `
+                -Uri "https://www.virustotal.com/api/v3/files/$hash" `
+                -Headers $headers
+
+            $stats = $response.data.attributes.last_analysis_stats
+
+            if ($stats.malicious -gt 0) {
+                $maliciousList += $file
+            }
+            elseif ($stats.suspicious -gt 0) {
+                $suspiciousList += $file
+            }
+
+        }
+        catch {
+            Write-Host "Error checking $file" -ForegroundColor Yellow
+        }
+
+    }
+    else {
+        Write-Host "File not found: $file" -ForegroundColor DarkGray
+    }
+}
+
+Write-Host "`n====== Scan Result ======" -ForegroundColor Cyan
+
+Write-Host "`nMalicious Files:" -ForegroundColor Red
+$maliciousList | ForEach-Object { Write-Host $_ }
+
+Write-Host "`nSuspicious Files:" -ForegroundColor Yellow
+$suspiciousList | ForEach-Object { Write-Host $_ }
+
+Write-Host "`nScan Completed!"
